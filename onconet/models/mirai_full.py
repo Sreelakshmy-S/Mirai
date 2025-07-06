@@ -164,8 +164,9 @@ class MiraiModel:
         return pred_y.tolist()
 
     def process_exam(self, images, risk_factor_vector):
-        if len(images) != 4:
-            raise ValueError(f"Require exactly 4 images, instead we got {len(images)}")
+        # Below lines commented for model to accept <4 dicoms as well
+        # if len(images) != 4:
+        #     raise ValueError(f"Require exactly 4 images, instead we got {len(images)}")
 
         logger = get_logger()
         logger.debug(f"Processing images...")

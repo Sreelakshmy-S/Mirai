@@ -74,8 +74,9 @@ def predict(dicom_files: List[str], config_path: str, output_path=None, use_pydi
     if dry_run:
         logger.info(f"Model version: {model.__version__}. Dry run complete.")
         return
-
-    assert len(dicom_files) == 4, "Expected 4 DICOM files, got {}".format(len(dicom_files))
+    
+    # Below line commented out for model to accept <4 views as well
+    # assert len(dicom_files) == 4, "Expected 4 DICOM files, got {}".format(len(dicom_files))
     for dicom_file in dicom_files:
         # assert dicom_file.endswith('.dcm'), f"DICOM files must have extension 'dcm'"
         assert os.path.exists(dicom_file), f"File not found: {dicom_file}"
