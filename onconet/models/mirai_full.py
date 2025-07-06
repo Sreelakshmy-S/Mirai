@@ -204,72 +204,131 @@ class MiraiModel:
         if payload is None:
             payload = dict()
 
-        dcmread_force = payload.get("dcmread_force", False)
-        dcmtk_installed = onconet.utils.dicom.is_dcmtk_installed()
-        use_dcmtk = payload.get("dcmtk", True) and dcmtk_installed
-        if use_dcmtk:
-            logger.info('Using dcmtk')
-        else:
-            logger.info('Using pydicom')
+        # Below commented out for PNG input acceptance
+        # dcmread_force = payload.get("dcmread_force", False)
+        # dcmtk_installed = onconet.utils.dicom.is_dcmtk_installed()
+        # use_dcmtk = payload.get("dcmtk", True) and dcmtk_installed
+        # if use_dcmtk:
+        #     logger.info('Using dcmtk')
+        # else:
+        #     logger.info('Using pydicom')
 
         images = []
-        dicom_info = {}
-        for dicom in dicom_files:
-            try:
-                tmp_dcm = pydicom.dcmread(dicom, force=dcmread_force, stop_before_pixels=True)
-                view, side = onconet.utils.dicom.get_dicom_info(tmp_dcm)
+        # dicom_info = {}
+        # the entire below section is modified to enable png predictions
+        if isinstance(input_files[0], str):
+            for file_path in input_files:
+                try:
+                    original_filename = os.path.basename(file_path)
+                    if not ('_CC.' in original_filename.upper() or '_MLO.' in original_filename.upper()):
+                        raise ValueError(f"Filename must contain view/side like R_CC.png. Got: {original_filename}")
 
-                if (view, side) in dicom_info:
-                    prev_dicom = dicom_info[(view, side)]
-                    prev = int(prev_dicom[0x0008, 0x0023].value + prev_dicom[0x0008, 0x0033].value)
-                    cur = int(dicom[0x0008, 0x0023].value + dicom[0x0008, 0x0033].value)
+                    with open(file_path, 'rb') as f:
+                        file_content = f.read()
 
-                    if cur > prev:
-                        dicom_info[(view, side)] = dicom
-                else:
-                    dicom_info[(view, side)] = dicom
-            except Exception as e:
-                logger.warning(f"Error reading DICOM: {e}")
-                logger.warning(f"{traceback.format_exc()}")
+                    # Create temp file with original name structure preserved
+                    with tempfile.NamedTemporaryFile(
+                        prefix='mirai_',
+                        suffix=f'_{original_filename}',
+                        dir='/tmp'
+                    ) as tmp_png:
+                        tmp_png.write(file_content)
+                        tmp_png.flush()
 
-        for k in dicom_info:
-            try:
-                dicom = dicom_info[k]
-                dicom.seek(0)
-                view, side = k
+                        view, side = onconet.utils.dicom.get_png_info(tmp_png.name)
+                        image = onconet.utils.dicom.png_to_image(tmp_png.name)
+                        images.append({'x': image, 'side_seq': side, 'view_seq': view})
 
-                if use_dcmtk:
-                    dicom_file = tempfile.NamedTemporaryFile(suffix='.dcm')
-                    image_file = tempfile.NamedTemporaryFile(suffix='.png')
-                    dicom_path = dicom_file.name
-                    image_path = image_file.name
-                    logger.debug("Temp DICOM path: {}".format(dicom_path))
-                    logger.debug("Temp image path: {}".format(image_path))
+                except Exception as e:
+                    logger.error(f"Error processing file {file_path}: {e}")
+                    raise
+        else:
+            for i, input_file in enumerate(input_files):
+                try:
+                    input_file.seek(0)
+                    file_start = input_file.read(132)
+                    input_file.seek(0)
 
-                    dicom_file.write(dicom.read())
+                    # Check for PNG first (simpler signature)
+                    if file_start.startswith(b'\x89PNG'):
+                        logger.info("Processing PNG file")
 
-                    image = onconet.utils.dicom.dicom_to_image_dcmtk(dicom_path, image_path)
-                    logger.debug('Image mode from dcmtk: {}'.format(image.mode))
-                    images.append({'x': image, 'side_seq': side, 'view_seq': view})
-                else:
-                    dicom = pydicom.dcmread(dicom, force=dcmread_force)
-                    window_method = payload.get("window_method", "minmax")
-                    image = onconet.utils.dicom.dicom_to_arr(dicom, window_method=window_method, pillow=True)
-                    logger.debug('Image mode from dicom: {}'.format(image.mode))
-                    images.append({'x': image, 'side_seq': side, 'view_seq': view})
-            except Exception as e:
-                logger.warning(f"{type(e).__name__}: {e}")
-                logger.warning(f"{traceback.format_exc()}")
+                        # Generate a filename based on position since we don't have the original
+                        positions = ['L_CC', 'R_CC', 'L_MLO', 'R_MLO']
+                        if i < len(positions):
+                            original_filename = f"{positions[i]}.png"
+                        else:
+                            raise ValueError("Too many input files - expected exactly 4")
 
-        risk_factor_vector = None
+                        # Create temp file with position-based name
+                        with tempfile.NamedTemporaryFile(
+                            prefix='mirai_',
+                            suffix=f'_{original_filename}',
+                            dir='/tmp'
+                        ) as tmp_png:
+                            tmp_png.write(input_file.read())
+                            tmp_png.flush()
 
-        y = self.process_exam(images, risk_factor_vector)
-        logger.debug(f'Raw Predictions: {y}')
+                            view, side = onconet.utils.dicom.get_png_info(tmp_png.name)
+                            image = onconet.utils.dicom.png_to_image(tmp_png.name)
+                            images.append({'x': image, 'side_seq': side, 'view_seq': view})
 
-        y = {'Year {}'.format(i+1): round(p, 4) for i, p in enumerate(y)}
-        report = {'predictions': y}
+                        # Rest of the DICOM handling remains the same...
+                    elif b'DICM' in file_start[:4] or (len(file_start) > 132 and b'DICM' in file_start[128:132]):
+                        # Handle DICOM file (unchanged from original)
+                        dcmread_force = payload.get("dcmread_force", False)
+                        dcmtk_installed = onconet.utils.dicom.is_dcmtk_installed()
+                        use_dcmtk = payload.get("dcmtk", True) and dcmtk_installed
 
-        return report
+                        if use_dcmtk:
+                            logger.info('Using dcmtk for DICOM')
+                            with tempfile.NamedTemporaryFile(suffix='.dcm') as dcm_file:
+                                dcm_file.write(input_file.read())
+                                dcm_file.flush()
+                                with tempfile.NamedTemporaryFile(suffix='.png') as img_file:
+                                    image = onconet.utils.dicom.dicom_to_image_dcmtk(dcm_file.name, img_file.name)
+                                    tmp_dcm = pydicom.dcmread(dcm_file.name, stop_before_pixels=True)
+                                    view, side = onconet.utils.dicom.get_dicom_info(tmp_dcm)
+                                    images.append({'x': image, 'side_seq': side, 'view_seq': view})
+                        else:
+                            logger.info('Using pydicom for DICOM')
+                            try:
+                                dicom = pydicom.dcmread(input_file, force=dcmread_force)
+                                window_method = payload.get("window_method", "minmax")
+                                image = onconet.utils.dicom.dicom_to_arr(dicom, window_method=window_method, pillow=True)
+                                view, side = onconet.utils.dicom.get_dicom_info(dicom)
+                                images.append({'x': image, 'side_seq': side, 'view_seq': view})
+                            except Exception as e:
+                                logger.error(f"Error reading DICOM file: {e}")
+                                raise
+                    else:
+                        try:
+                            logger.warning("File doesn't have standard DICOM signature, attempting to read anyway")
+                            dicom = pydicom.dcmread(input_file, force=True)
+                            window_method = payload.get("window_method", "minmax")
+                            image = onconet.utils.dicom.dicom_to_arr(dicom, window_method=window_method, pillow=True)
+                            view, side = onconet.utils.dicom.get_dicom_info(dicom)
+                            images.append({'x': image, 'side_seq': side, 'view_seq': view})
+                        except Exception as e:
+                            raise ValueError(f"Could not read file as either DICOM or PNG: {e}")
+
+                except Exception as e:
+                    logger.warning(f"{type(e).__name__}: {e}")
+                    logger.warning(f"{traceback.format_exc()}")
+
+            logger.info(f"Total images processed: {len(images)}")
+            for idx, img_entry in enumerate(images):
+                img = img_entry['x']
+                logger.info(f"Image {idx + 1}: size = {img.size}, mode = {img.mode}")
+
+            risk_factor_vector = None
+            y = self.process_exam(images, risk_factor_vector)
+            logger.debug(f'Raw Predictions: {y}')
+
+            y = {'Year {}'.format(i+1): round(p, 4) for i, p in enumerate(y)}
+            report = {'predictions': y, 'modelVersion': self.__version__}
+
+            return report
 
     @staticmethod
     def sanitize_paths(args):

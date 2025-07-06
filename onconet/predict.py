@@ -63,7 +63,7 @@ def _load_config(config_path, **kwargs):
     return args
 
 
-def predict(dicom_files: List[str], config_path: str, output_path=None, use_pydicom=False,
+def predict(input_files: List[str], config_path: str, output_path=None, use_pydicom=False,
             threads=0, dry_run=False, window_method='minmax') -> dict:
     logger = logging_utils.get_logger()
 
@@ -77,26 +77,26 @@ def predict(dicom_files: List[str], config_path: str, output_path=None, use_pydi
     
     # Below line commented out for model to accept <4 views as well
     # assert len(dicom_files) == 4, "Expected 4 DICOM files, got {}".format(len(dicom_files))
-    for dicom_file in dicom_files:
+    for input_file in input_files:
         # assert dicom_file.endswith('.dcm'), f"DICOM files must have extension 'dcm'"
-        assert os.path.exists(dicom_file), f"File not found: {dicom_file}"
+        assert os.path.exists(input_file), f"File not found: {input_file}"
 
     logger.info(f"Beginning prediction with model {model.__version__}")
-    logger.debug(f"Input files: {', '.join(dicom_files)}")
+    logger.debug(f"Input files: {', '.join(input_files)}")
 
     if not use_pydicom:
         if not onconet.utils.dicom.is_dcmtk_installed():
             logger.warning("DCMTK not found. Using pydicom.")
             use_pydicom = True
 
-    # Load DICOM files into memory
-    def load_binary(_dicom_file) -> io.BytesIO:
-        with open(_dicom_file, 'rb') as _fi:
+    # Load DICOM/PNG files into memory
+    def load_binary(file_path) -> io.BytesIO:
+        with open(file_path, 'rb') as _fi:
             return io.BytesIO(_fi.read())
 
-    dicom_data_list = [load_binary(dicom_file) for dicom_file in dicom_files]
+    file_data_list = [load_binary(input_file) for input_file in input_files]
     payload = {"dcmtk": not use_pydicom, "window_method": window_method}
-    model_output_dict = model.run_model(dicom_data_list, payload=payload)
+    model_output_dict = model.run_model(file_data_list, payload=payload)
     model_output_dict["modelVersion"] = model.__version__
 
     logger.info(f"Finished prediction version {model.__version__}")
