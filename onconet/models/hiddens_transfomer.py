@@ -34,8 +34,8 @@ class AllImageTransformer(nn.Module):
 
         self.pred_masked_img_fc = nn.Linear(args.hidden_dim, args.precomputed_hidden_dim)
         pool_name = args.pool_name
-        if args.use_risk_factors:
-            pool_name = 'DeepRiskFactorPool' if self.args.deep_risk_factor_pool else 'RiskFactorPool'
+        # if args.use_risk_factors:
+        #     pool_name = 'DeepRiskFactorPool' if self.args.deep_risk_factor_pool else 'RiskFactorPool'
         self.pool = get_pool(pool_name)(args, args.hidden_dim)
 
 
@@ -94,14 +94,14 @@ class AllImageTransformer(nn.Module):
         transformer_hidden = self.transformer(masked_x, time_seq, view_seq, side_seq)
 
         img_like_hidden = transformer_hidden.transpose(1,2).unsqueeze(-1)
-        logit, hidden = self.aggregate_and_classify(img_like_hidden, risk_factors=risk_factors)
+        logit, hidden = self.aggregate_and_classify(img_like_hidden, None)  # replace risk_factors=risk_factors with None for non-inference of rf
 
         activ_dict = {}
         try:
             if self.args.predict_birads:
                 activ_dict['birads_logit'] = self.birads_fc(hidden)
-            if self.args.pred_risk_factors:
-                activ_dict['pred_rf_loss'] = self.pool.get_pred_rf_loss(hidden, risk_factors)
+            # if self.args.pred_risk_factors:
+            #     activ_dict['pred_rf_loss'] = self.pool.get_pred_rf_loss(hidden, risk_factors)
 
             if self.args.pred_missing_mammos:
                 activ_dict['pred_masked_mammo_loss'] = self.get_pred_mask_loss(transformer_hidden, x, is_mask)
@@ -112,11 +112,8 @@ class AllImageTransformer(nn.Module):
 
     def aggregate_and_classify(self, x, risk_factors=None):
         # Pooling layer
-        if self.args.use_risk_factors:
-            logit, hidden = self.pool(x, risk_factors)
-        else:
-            logit, hidden = self.pool(x)
-
+        logit, hidden = self.pool(x, risk_factors)
+        
         if not self.pool.replaces_fc():
             # self.fc is always on last gpu, so direct call of fc(x) is safe
             try:

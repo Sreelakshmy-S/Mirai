@@ -81,7 +81,7 @@ def predict(input_files: List[str], config_path: str, output_path=None, use_pydi
         # assert dicom_file.endswith('.dcm'), f"DICOM files must have extension 'dcm'"
         assert os.path.exists(input_file), f"File not found: {input_file}"
 
-    logger.info(f"Beginning prediction with model {model.__version__}")
+    logger.info(f"Beginning prediction with model [Mirai] {model.__version__}")
     logger.debug(f"Input files: {', '.join(input_files)}")
 
     if not use_pydicom:

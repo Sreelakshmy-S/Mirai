@@ -53,11 +53,12 @@ class MiraiFull(nn.Module):
     def forward(self, x, risk_factors=None, batch=None):
         B, C, N, H, W = x.size()
         x = x.transpose(1,2).contiguous().view(B*N, C, H, W)
-        risk_factors_per_img =  (lambda N, risk_factors: [factor.expand( [N, *factor.size()]).contiguous().view([-1, factor.size()[-1]]).contiguous() for factor in risk_factors])(N, risk_factors) if risk_factors is not None else None
+        # risk_factors_per_img =  (lambda N, risk_factors: [factor.expand( [N, *factor.size()]).contiguous().view([-1, factor.size()[-1]]).contiguous() for factor in risk_factors])(N, risk_factors) if risk_factors is not None else None
+        risk_factors_per_img = None
         _, img_x, _ = self.image_encoder(x, risk_factors_per_img, batch)
         img_x = img_x.view(B, N, -1)
         img_x = img_x[:,:,: self.image_repr_dim]
-        logit, transformer_hidden, activ_dict = self.transformer(img_x, risk_factors, batch)
+        logit, transformer_hidden, activ_dict = self.transformer(img_x, None, batch) #risk_factors to None for non-inference of rf
         return logit, transformer_hidden, activ_dict
 
 
@@ -149,9 +150,10 @@ class MiraiModel:
             model = model.cpu()
             logger.debug("Inference with CPU")
 
-        risk_factors = autograd.Variable(risk_factor_vector.unsqueeze(0)) if risk_factor_vector is not None else None
+        # risk_factors = autograd.Variable(risk_factor_vector.unsqueeze(0)) if risk_factor_vector is not None else None
+        risk_factors = None
 
-        logit, _, _ = model(batch['x'], risk_factors, batch)
+        logit, _, _ = model(batch['x'], None, batch) # risk_factor -> none
         probs = F.sigmoid(logit).cpu().data.numpy()
         pred_y = np.zeros(probs.shape[1])
 
@@ -180,7 +182,7 @@ class MiraiModel:
         model = self.load_model()
         calibrator = self.load_calibrator()
 
-        y = self.process_image_joint(batch, model, calibrator, risk_factor_vector)
+        y = self.process_image_joint(batch, model, calibrator, None) # risk_factor_vector -> none
 
         return y
 

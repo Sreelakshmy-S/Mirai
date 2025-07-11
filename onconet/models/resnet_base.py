@@ -35,6 +35,12 @@ class ResNet(nn.Module):
 
         super(ResNet, self).__init__()
 
+        # Adding belwo 4 lines of code: (non-inference of risk-factors)
+        args.use_risk_factors = False
+        args.rf_dim = 0
+        args.hidden_dim = 512  # or keep it dynamic based on block widening
+        args.img_only_dim = 512  # Ensures compatibility with other components
+
         self.args = args
         self.args.wrap_model = False
 
@@ -77,8 +83,9 @@ class ResNet(nn.Module):
         last_block = layers[-1][-1]
 
         pool_name = args.pool_name
-        if args.use_risk_factors:
-            pool_name = 'DeepRiskFactorPool' if self.args.deep_risk_factor_pool else 'RiskFactorPool'
+        # (non-inference of rf)
+        # if args.use_risk_factors:
+        #     pool_name = 'DeepRiskFactorPool' if self.args.deep_risk_factor_pool else 'RiskFactorPool'
         self.pool = get_pool(pool_name)(args, args.hidden_dim)
 
         if not self.pool.replaces_fc():
@@ -192,7 +199,7 @@ class ResNet(nn.Module):
         Returns:
             The result of feeding the input through the model.
         """
-
+        print("[MIRAI: Resnet Base]: x (input) shape : ", x.shape)
         # Go through all layers up to fc
         if self.args.use_precomputed_hiddens:
             x = x.transpose(2,1)
@@ -204,18 +211,19 @@ class ResNet(nn.Module):
             for name in layers:
                 layer = self._modules[name]
                 x = layer(x)
-        logit, hidden = self.aggregate_and_classify(x, risk_factors=risk_factors)
+        logit, hidden = self.aggregate_and_classify(x, None)
         activ_dict = {'activ':x}
         if self.args.use_region_annotation:
             activ_dict['region_logit'] = self.region_fc(x)
         if self.args.predict_birads:
             activ_dict['birads_logit'] = self.birads_fc(hidden)
 
-        if self.args.pred_risk_factors:
-            try:
-                activ_dict['pred_rf_loss'] = self.pool.get_pred_rf_loss(hidden, risk_factors)
-            except:
-                pass
+        # if self.args.pred_risk_factors:
+        #     try:
+        #         activ_dict['pred_rf_loss'] = self.pool.get_pred_rf_loss(hidden, risk_factors)
+        #     except:
+        #         pass
+        # above commented for non-inference of rf
         if self.args.use_precomputed_hiddens:
             return logit, logit, logit, hidden
         else:
@@ -224,10 +232,12 @@ class ResNet(nn.Module):
 
     def aggregate_and_classify(self, x, risk_factors=None):
         # Pooling layer
-        if self.args.use_risk_factors:
-            logit, hidden = self.pool(x, risk_factors)
-        else:
-            logit, hidden = self.pool(x)
+        # if self.args.use_risk_factors:
+        #     logit, hidden = self.pool(x, risk_factors)
+        # else:
+        #     logit, hidden = self.pool(x)
+        # above commented for non-inference of rf
+        logit, hidden = self.pool(x)
 
         if not self.pool.replaces_fc():
             # self.fc is always on last gpu, so direct call of fc(x) is safe
